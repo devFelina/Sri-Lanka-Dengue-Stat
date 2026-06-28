@@ -7,21 +7,19 @@ interface DengueMapProps {
   onDistrictSelect: (name: string) => void;
 }
 
-// Name dictionary translating transliterated names in lk.json to match dashboard metrics keys
 const districtNameMap: Record<string, string> = {
   "Ampara": "Ampara", "Anuradhapura": "Anuradhapura", "Badulla": "Badulla",
   "Batticaloa": "Batticaloa", "Colombo": "Colombo", "Galle": "Galle",
   "Gampaha": "Gampaha", "Hambantota": "Hambantota", "Jaffna": "Jaffna",
   "Kalutara": "Kalutara", "Kandy": "Kandy", "Kegalle": "Kegalle",
   "Kilinochchi": "Kilinochchi", "Kurunegala": "Kurunegala", "Mannar": "Mannar",
-  "Matale": "Matale", "Matara": "Matara", "Moneragala": "Moneragala",
-  "Mullaitivu": "Mullaitivu", "Nuwara Eliya": "Nuwara Eliya", 
+  "Matale": "Matale", "Matara": "Matara", "Moneragala": "Moneragala", "Monaragala": "Moneragala",
+  "Mullaitivu": "Mullaitivu", "Nuwara Eliya": "Nuwara Eliya", "Nuwaraeliya": "Nuwara Eliya",
   "Polonnaruwa": "Polonnaruwa", "Puttalam": "Puttalam", 
   "Ratnapura": "Ratnapura", "Trincomalee": "Trincomalee", "Vavuniya": "Vavuniya"
 };
 
-// Map boundaries locking focus tightly over Sri Lanka coordinates
-const SRI_LANKA_BOUNDS = L.latLngBounds(L.latLng(5.5, 79.2), L.latLng(10.0, 82.2));
+const SRI_LANKA_BOUNDS = L.latLngBounds(L.latLng(5.4, 79.0), L.latLng(10.2, 82.4));
 
 export default function DengueMap({ weeklyData, onDistrictSelect }: DengueMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -30,41 +28,39 @@ export default function DengueMap({ weeklyData, onDistrictSelect }: DengueMapPro
 
   const getFillColor = (geoName: string) => {
     if (!weeklyData || !weeklyData.districts) return '#1c1c1e';
-    const correctedName = districtNameMap[geoName] || geoName;
-    const cleanGeoName = correctedName.toLowerCase().replace(/district/g, '').trim();
+    
+    const cleanedGeoName = geoName.replace(/district/gi, '').trim().toLowerCase();
+    
+    let matchedKey = Object.keys(weeklyData.districts).find((key) => {
+      const cleanedKey = (districtNameMap[key] || key).replace(/district/gi, '').trim().toLowerCase();
+      return cleanedKey === cleanedGeoName;
+    });
 
-    let matchedKey = Object.keys(weeklyData.districts).find((key) => 
-      key.toLowerCase().replace(/district/g, '').trim() === cleanGeoName
-    );
-
-    // Fallback mapping Kalmunai health data into Ampara district boundaries
-    if (!matchedKey && cleanGeoName === 'ampara' && weeklyData.districts['Kalmunai']) {
+    if (!matchedKey && cleanedGeoName === 'ampara' && weeklyData.districts['Kalmunai']) {
       matchedKey = 'Kalmunai';
     }
 
-    if (!matchedKey) return '#27272a'; // Gray fallback for unmapped vectors
+    if (!matchedKey || !weeklyData.districts[matchedKey]) return '#27272a';
 
     const cases = weeklyData.districts[matchedKey].cases;
-    if (cases >= 20) return '#ef4444'; // Elevated Outbreak Red
-    if (cases >= 10) return '#f97316'; // Warning Alert Orange
-    if (cases > 0)   return '#eab308'; // Low Active Yellow
-    return '#3f3f46';                  // Baseline Controlled Grey
+    if (cases >= 20) return '#ef4444'; 
+    if (cases >= 10) return '#f97316'; 
+    if (cases > 0)   return '#eab308'; 
+    return '#3f3f46';                  
   };
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    // Safety cleanup: Destroy instance if it already exists before remounting
     if (mapRef.current) {
       mapRef.current.remove();
       mapRef.current = null;
     }
 
-    // Initialize map frame with strict boundaries
     const mapInstance = L.map(mapContainerRef.current, {
       center: [7.8731, 80.7718],
-      zoom: 7.3,
-      minZoom: 7, 
+      zoom: 7.2,
+      minZoom: 6.5, 
       maxZoom: 10,
       maxBounds: SRI_LANKA_BOUNDS,
       maxBoundsViscosity: 1.0,
@@ -74,31 +70,34 @@ export default function DengueMap({ weeklyData, onDistrictSelect }: DengueMapPro
 
     mapRef.current = mapInstance;
 
-    // Force container sizing validation recalculation
     setTimeout(() => {
-      mapInstance.invalidateSize();
-    }, 200);
+      if (mapInstance) mapInstance.invalidateSize();
+    }, 250);
 
-    // ✅ READ EXCLUSIVELY FROM LOCAL GEOMAP ASSET (NO EXTERNAL API TILES OR INTERNET CALLS)
-    fetch('./data/lk.json')
-      .then((res) => res.json())
+    const basePath = import.meta.env.BASE_URL;
+    fetch(`${basePath}data/lk.json`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+        return res.json();
+      })
       .then((geoData) => {
-        if (!mapRef.current) return;
+        if (!mapRef.current || !mapContainerRef.current) return;
 
         const geoLayer = L.geoJSON(geoData, {
           style: (feature: any) => {
-            const rawName = feature.properties.name || feature.properties.NAME_1 || "";
+            const rawName = feature.properties?.name || feature.properties?.NAME_1 || feature.properties?.district || "";
             return {
               fillColor: getFillColor(rawName),
               weight: 1.5,
               opacity: 1,
-              color: '#09090b', // Clean dark divider border lines separating districts
+              color: '#09090b',
               fillOpacity: 0.85,
             };
           },
           onEachFeature: (feature, layer) => {
-            const rawName = feature.properties.name || feature.properties.NAME_1 || "";
-            const correctedName = districtNameMap[rawName] || rawName;
+            const rawName = feature.properties?.name || feature.properties?.NAME_1 || feature.properties?.district || "";
+            const cleanedRawName = rawName.replace(/district/gi, '').trim();
+            const correctedName = districtNameMap[cleanedRawName] || cleanedRawName;
             
             layer.on({
               click: () => onDistrictSelect(correctedName),
@@ -108,17 +107,19 @@ export default function DengueMap({ weeklyData, onDistrictSelect }: DengueMapPro
               }
             });
           }
-        }).addTo(mapInstance);
+        });
 
+        if (!mapRef.current) return;
+
+        geoLayer.addTo(mapRef.current);
         geoJsonLayerRef.current = geoLayer;
 
-        // Automatically snap and pad the viewport around the loaded districts geometry
         const bounds = geoLayer.getBounds();
-        if (bounds.isValid()) {
-          mapInstance.fitBounds(bounds, { padding: [20, 20] });
+        if (bounds.isValid() && mapRef.current) {
+          mapRef.current.fitBounds(bounds, { padding: [15, 15] });
         }
       })
-      .catch((err) => console.error("Error parsing local lk.json file structure:", err));
+      .catch((err) => console.error("Error drawing unified lk.json geographic vectors:", err));
 
     return () => {
       if (mapRef.current) {
@@ -128,14 +129,16 @@ export default function DengueMap({ weeklyData, onDistrictSelect }: DengueMapPro
     };
   }, []);
 
-  // Hot Reload listener handling time slider indices changes
+  // Update fill styles dynamically when sliding across weekly intervals
   useEffect(() => {
     if (geoJsonLayerRef.current) {
       geoJsonLayerRef.current.eachLayer((layer: any) => {
-        const districtName = layer.feature.properties.name || layer.feature.properties.NAME_1 || "";
-        layer.setStyle({
-          fillColor: getFillColor(districtName)
-        });
+        if (layer.feature && layer.feature.properties) {
+          const districtName = layer.feature.properties.name || layer.feature.properties.NAME_1 || layer.feature.properties.district || "";
+          layer.setStyle({
+            fillColor: getFillColor(districtName)
+          });
+        }
       });
     }
   }, [weeklyData]);
