@@ -80,7 +80,7 @@ export default function DengueMap({ weeklyData, onDistrictSelect }: DengueMapPro
     }, 200);
 
     // ✅ READ EXCLUSIVELY FROM LOCAL GEOMAP ASSET (NO EXTERNAL API TILES OR INTERNET CALLS)
-    fetch('/data/lk.json')
+    fetch('./data/lk.json')
       .then((res) => res.json())
       .then((geoData) => {
         if (!mapRef.current) return;
